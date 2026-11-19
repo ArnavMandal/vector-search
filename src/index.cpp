@@ -114,6 +114,31 @@ void Index::search_one(const float* query, std::span<Neighbor> out, std::size_t 
     std::sort_heap(out.begin(), out.end());
 }
 
+void Index::search_hnsw_one(const float* query, std::span<Neighbor> out, std::size_t ef,
+                            HnswTrace* trace) const {
+    const auto best = graph_->search(vectors_.data(), dim_, query, ef, trace);
+    if (best.size() >= out.size()) {
+        std::copy_n(best.begin(), out.size(), out.begin());
+        return;
+    }
+    // Pruned edges can leave fewer than k reachable rows. Keep the graph trace
+    // separate from the exact scan used to meet the result-count contract.
+    if (trace) trace->exact_fallback = true;
+    search_one(query, out, 0);
+}
+
+HnswTrace Index::trace_hnsw(std::span<const float> query, std::size_t k, std::size_t efSearch) const {
+    if (query.size() != dim_) throw std::invalid_argument("trace requires one query of index dimension");
+    k = std::min(k, size());
+    if (!graph_ || !k || efSearch < k)
+        throw std::invalid_argument("trace requires a graph and efSearch >= result count > 0");
+    validate_finite(query);
+    HnswTrace trace;
+    trace.neighbors.resize(k);
+    search_hnsw_one(query.data(), trace.neighbors, efSearch, &trace);
+    return trace;
+}
+
 std::vector<Neighbor> Index::search(std::span<const float> queries, std::size_t k,
                                     std::size_t budget, std::size_t threads, std::size_t efSearch) const {
     if (queries.size() % dim_) throw std::invalid_argument("query dimension mismatch");
@@ -132,16 +157,8 @@ std::vector<Neighbor> Index::search(std::span<const float> queries, std::size_t 
         for (auto i = begin; i < end; ++i) {
             const float* query = queries.data() + i * dim_;
             auto out = std::span(result).subspan(i * k, k);
-            if (efSearch) {
-                const auto best = graph_->search(vectors_.data(), dim_, query, efSearch);
-                if (best.size() >= k) {
-                    std::copy_n(best.begin(), k, out.begin());
-                    continue;
-                }
-                // Pruned directed edges can leave fewer than k nodes reachable.
-                // Preserve the public contract of k distinct results.
-            }
-            search_one(query, out, budget);
+            if (efSearch) search_hnsw_one(query, out, efSearch, nullptr);
+            else search_one(query, out, budget);
         }
     };
     threads = std::min(threads, count);

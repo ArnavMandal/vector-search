@@ -5,6 +5,7 @@
 #include <queue>
 #include <random>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace vs {
 namespace {
@@ -31,18 +32,20 @@ std::size_t HnswGraph::start(Id id, unsigned level) const {
     return offsets_[id] + (level == 0 ? 0 : (level + 1) * config.M);
 }
 
-Neighbor HnswGraph::descend(const Space& space, const float* q, Neighbor best, unsigned level) const {
+template<class Score>
+Neighbor HnswGraph::descend(const Score& score, Neighbor best, unsigned level) const {
     for (;;) {
         const auto current = best;
         for (auto id : std::span(links_).subspan(start(current.id, level), capacity(level))) {
             if (id == unused) break;
-            best = std::min(best, space.score(q, id));
+            best = std::min(best, score(current.id, id));
         }
         if (best == current) return best;
     }
 }
 
-std::vector<Neighbor> HnswGraph::explore(const Space& space, const float* q, Neighbor entry,
+template<class Score>
+std::vector<Neighbor> HnswGraph::explore(const Score& score, Neighbor entry,
                                          unsigned level, std::size_t ef, Visits& visited) const {
     std::priority_queue<Neighbor, std::vector<Neighbor>, std::greater<>> frontier;
     std::vector<Neighbor> best{entry}; // max-heap, root is the current rejection threshold
@@ -56,7 +59,7 @@ std::vector<Neighbor> HnswGraph::explore(const Space& space, const float* q, Nei
         for (auto id : std::span(links_).subspan(start(next.id, level), capacity(level))) {
             if (id == unused) break;
             if (!visited.first(id)) continue;
-            const auto candidate = space.score(q, id);
+            const auto candidate = score(next.id, id);
             if (best.size() == ef && candidate >= best.front()) continue;
             frontier.push(candidate);
             if (best.size() == ef) {
@@ -124,10 +127,11 @@ HnswGraph::HnswGraph(std::span<const float> rows, std::size_t dim, HnswConfig se
     Visits visited;
     for (std::size_t i = 1; i < n; ++i) {
         const auto* q = space.row(i);
+        const auto score = [&](Id, Id id) { return space.score(q, id); };
         auto entry = space.score(q, entry_);
-        for (auto l = top_; l > levels[i]; --l) entry = descend(space, q, entry, l);
+        for (auto l = top_; l > levels[i]; --l) entry = descend(score, entry, l);
         for (int l = static_cast<int>(std::min(top_, levels[i])); l >= 0; --l) {
-            const auto candidates = explore(space, q, entry, l, config.efConstruction, visited);
+            const auto candidates = explore(score, entry, l, config.efConstruction, visited);
             const auto keep = select(space, candidates, config.M);
             std::copy(keep.begin(), keep.end(), links_.begin() + start(i, l));
             for (auto id : keep) connect(space, id, i, l);
@@ -140,13 +144,30 @@ HnswGraph::HnswGraph(std::span<const float> rows, std::size_t dim, HnswConfig se
     }
 }
 
+template<class Score>
+std::vector<Neighbor> HnswGraph::search_layers(const Score& score, std::size_t ef, Visits& visited) const {
+    auto entry = score(entry_, entry_);
+    for (auto l = top_; l > 0; --l) entry = descend(score, entry, l);
+    return explore(score, entry, 0, ef, visited);
+}
+
 std::vector<Neighbor> HnswGraph::search(const float* rows, std::size_t dim, const float* query,
-                                        std::size_t ef) const {
+                                        std::size_t ef, HnswTrace* trace) const {
     const Space space{rows, dim, distance_kernel().compute};
-    auto entry = space.score(query, entry_);
-    for (auto l = top_; l > 0; --l) entry = descend(space, query, entry, l);
+    const auto score = [&](Id, Id id) { return space.score(query, id); };
     thread_local Visits visited;
-    return explore(space, query, entry, 0, ef, visited);
+    if (!trace) return search_layers(score, ef, visited);
+
+    // The observer spans every layer. Re-scoring a row does not count it twice.
+    std::unordered_set<Id> seen;
+    const auto record = [&](Id source, Id id) {
+        if (seen.insert(id).second) {
+            trace->examined.push_back(id);
+            if (source != id) trace->discovery_edges.emplace_back(source, id);
+        }
+        return score(source, id);
+    };
+    return search_layers(record, ef, visited);
 }
 
 std::size_t HnswGraph::storage_bytes() const {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <compare>
 #include <filesystem>
 #include <span>
@@ -21,6 +22,13 @@ struct HnswConfig {
     std::size_t M = 16;
     std::size_t efConstruction = 100;
 };
+// Each discovery edge records the first graph score of its destination row.
+struct HnswTrace {
+    std::vector<Neighbor> neighbors;
+    std::vector<std::uint32_t> examined;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> discovery_edges;
+    bool exact_fallback = false;
+};
 class HnswGraph;
 
 class Index {
@@ -39,6 +47,8 @@ public:
     std::vector<Neighbor> search(std::span<const float> queries, std::size_t k = 10,
                                  std::size_t budget = 0, std::size_t threads = 1,
                                  std::size_t efSearch = 0) const;
+    HnswTrace trace_hnsw(std::span<const float> query, std::size_t k = 10,
+                         std::size_t efSearch = 32) const;
     void save(const std::filesystem::path& path) const;
     static Index load(const std::filesystem::path& path);
 
@@ -48,6 +58,8 @@ private:
     std::vector<float> vectors_;
     std::vector<std::size_t> order_, axes_;
     void build(std::size_t begin, std::size_t end);
+    void search_hnsw_one(const float* query, std::span<Neighbor> out, std::size_t ef,
+                         HnswTrace* trace) const;
     void search_one(const float* query, std::span<Neighbor> out, std::size_t budget) const;
 };
 

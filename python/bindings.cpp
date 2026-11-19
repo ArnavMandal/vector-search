@@ -3,6 +3,7 @@
 
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <algorithm>
 #include <cstdint>
 
@@ -39,6 +40,28 @@ py::tuple search(const vs::Index& index, const Matrix& rows, std::size_t k,
     }
     return py::make_tuple(std::move(ids), std::move(distances));
 }
+
+py::dict trace_hnsw(const vs::Index& index, const Matrix& query, std::size_t k, std::size_t ef) {
+    if (query.ndim() != 1) throw std::invalid_argument("trace query must be a 1-D vector");
+    std::vector<float> point(query.data(), query.data() + query.size());
+    vs::HnswTrace trace;
+    {
+        py::gil_scoped_release release;
+        trace = index.trace_hnsw(point, k, ef);
+    }
+    py::list ids, distances;
+    for (const auto& neighbor : trace.neighbors) {
+        ids.append(neighbor.id);
+        distances.append(neighbor.distance);
+    }
+    py::dict result;
+    result["ids"] = ids;
+    result["squared_distances"] = distances;
+    result["examined"] = trace.examined;
+    result["discovery_edges"] = trace.discovery_edges;
+    result["exact_fallback"] = trace.exact_fallback;
+    return result;
+}
 }
 
 PYBIND11_MODULE(vector_search, m) {
@@ -54,6 +77,8 @@ PYBIND11_MODULE(vector_search, m) {
         .def_property_readonly("storage_bytes", &vs::Index::storage_bytes)
         .def("search", &search, py::arg("queries"), py::arg("k") = 10,
              py::arg("budget") = 0, py::arg("threads") = 1, py::kw_only(), py::arg("efSearch") = 0)
+        .def("trace_hnsw", &trace_hnsw, py::arg("query"), py::arg("k") = 10,
+             py::kw_only(), py::arg("efSearch") = 32)
         .def("save", [](const vs::Index& i, const std::string& p) { i.save(p); },
              py::call_guard<py::gil_scoped_release>())
         .def_static("load", [](const std::string& p) { return vs::Index::load(p); },

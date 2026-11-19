@@ -11,7 +11,7 @@ public:
     const HnswConfig config;
     std::size_t storage_bytes() const;
     std::vector<Neighbor> search(const float* rows, std::size_t dim, const float* query,
-                                 std::size_t ef) const;
+                                 std::size_t ef, HnswTrace* trace) const;
 
 private:
     using Id = std::uint32_t;
@@ -37,9 +37,13 @@ private:
     unsigned top_ = 0;
     std::size_t start(Id id, unsigned level) const;
     std::size_t capacity(unsigned level) const;
-    Neighbor descend(const Space&, const float*, Neighbor, unsigned level) const;
-    std::vector<Neighbor> explore(const Space&, const float*, Neighbor, unsigned level,
+    template<class Score>
+    Neighbor descend(const Score&, Neighbor, unsigned level) const;
+    template<class Score>
+    std::vector<Neighbor> explore(const Score&, Neighbor, unsigned level,
                                   std::size_t ef, Visits&) const;
+    template<class Score>
+    std::vector<Neighbor> search_layers(const Score&, std::size_t ef, Visits&) const;
     std::vector<Id> select(const Space&, std::span<const Neighbor>, std::size_t limit) const;
     void connect(const Space&, Id from, Id to, unsigned level);
 };

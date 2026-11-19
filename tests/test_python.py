@@ -101,6 +101,50 @@ class SearchTests(unittest.TestCase):
         np.testing.assert_array_equal(ids, np.arange(45)[None, :])
         np.testing.assert_array_equal(scores, np.zeros_like(scores))
 
+    def test_trace_matches_search_and_records_first_discoveries(self):
+        graph = Index(self.rows, hnsw=True, M=4, efConstruction=24)
+        for ef in (10, 32, 100):
+            ids, scores = graph.search(self.queries, k=10, efSearch=ef)
+            for q, expected_ids, expected_scores in zip(self.queries, ids, scores):
+                trace = graph.trace_hnsw(q, efSearch=ef)
+                np.testing.assert_array_equal(trace["ids"], expected_ids)
+                np.testing.assert_array_equal(trace["squared_distances"], expected_scores)
+                examined = trace["examined"]
+                self.assertEqual(len(set(examined)), len(examined))
+                self.assertTrue(all(0 <= row < graph.size for row in examined))
+                seen = {examined[0]}
+                self.assertEqual([dst for _, dst in trace["discovery_edges"]], examined[1:])
+                for src, dst in trace["discovery_edges"]:
+                    self.assertIn(src, seen)
+                    seen.add(dst)
+                if not trace["exact_fallback"]:
+                    self.assertTrue(set(trace["ids"]).issubset(seen))
+
+    def test_trace_includes_rejected_scores_and_separates_recovery(self):
+        pair = Index([[0], [5]], hnsw=True)
+        trace = pair.trace_hnsw([0], k=1, efSearch=1)
+        self.assertEqual(trace["ids"], [0])
+        self.assertEqual(trace["examined"], [0, 1])
+        self.assertEqual(trace["discovery_edges"], [(0, 1)])
+        self.assertFalse(trace["exact_fallback"])
+
+        duplicates = Index(np.zeros((45, 2)), hnsw=True, M=2, efConstruction=4)
+        trace = duplicates.trace_hnsw([0, 0], k=45, efSearch=45)
+        self.assertTrue(trace["exact_fallback"])
+        self.assertLess(len(trace["examined"]), 45)
+        self.assertEqual(trace["ids"], list(range(45)))
+
+    def test_trace_rejects_invalid_requests(self):
+        graph = Index(self.rows, hnsw=True)
+        for query in [self.queries, [0], [np.nan] * graph.dimension]:
+            with self.assertRaises(ValueError):
+                graph.trace_hnsw(query)
+        for options in [dict(k=0), dict(efSearch=9)]:
+            with self.assertRaises(ValueError):
+                graph.trace_hnsw(self.queries[0], **options)
+        with self.assertRaises(ValueError):
+            self.index.trace_hnsw(self.queries[0])
+
     def test_ties_and_ownership(self):
         rows = np.zeros((57, 3), dtype="f4")
         idx = Index(rows, tree=True)

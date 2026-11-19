@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f3">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <title>Search explorer · Vector Search</title>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Vector Search</div>
+      <a href="https://github.com/ArnavMandal/vector-search/blob/main/benchmarks/REPORT.md" target="_blank" rel="noopener">Benchmarks <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main>
+    <div class="intro">
+      <div>
+        <h1>Search explorer</h1>
+        <p>Click the map to compare HNSW with an exact search.</p>
+      </div>
+      <span class="status" id="status" role="status"><i></i><span>Connecting</span></span>
+    </div>
+    <div class="workspace">
+      <section class="map-card" aria-labelledby="map-title">
+        <div class="map-header">
+          <h2 id="map-title"><span class="map-icon" aria-hidden="true"></span>Vector space</h2>
+          <output id="position" class="mono" aria-label="Query coordinates">x — &nbsp; y —</output>
+        </div>
+        <div class="plot">
+          <canvas id="map" tabindex="0" aria-label="Vector map. Click to place a query, or use the arrow keys to move it." aria-describedby="map-help">
+            The search results and unique point count are also shown in Query results.
+          </canvas>
+        </div>
+        <ul class="legend" aria-label="Map legend">
+          <li><i class="symbol stored"></i>Stored</li>
+          <li><i class="symbol examined"></i>Examined</li>
+          <li><i class="symbol found"></i>HNSW top 10</li>
+          <li><i class="symbol exact"></i>Exact top 10</li>
+          <li><i class="symbol query"></i>Query</li>
+        </ul>
+      </section>
+      <aside>
+        <section class="controls panel" aria-label="Search controls">
+          <div class="section-heading">
+            <h2><label for="breadth">Search breadth</label></h2>
+            <span class="param mono">efSearch</span>
+          </div>
+          <div class="slider-line">
+            <input id="breadth" type="range" aria-describedby="breadth-help" disabled>
+            <output class="value mono" id="ef-value" for="breadth">—</output>
+          </div>
+          <p id="breadth-help">A wider search keeps more candidate neighbors at each step.</p>
+        </section>
+        <section class="results panel" aria-labelledby="results-title" aria-live="polite" aria-atomic="true">
+          <h2 id="results-title">Query results</h2>
+          <div class="metric">
+            <h3>Neighbors recovered</h3>
+            <div class="number"><span id="recovered">—</span><small> / <span id="k">—</span></small></div>
+            <div id="recall-meter" class="segments" aria-hidden="true"></div>
+          </div>
+          <div class="metric">
+            <h3>Unique points examined</h3>
+            <div class="number"><span id="examined">—</span><small> / <span id="total">—</span></small></div>
+            <div class="progress" aria-hidden="true"><i id="coverage"></i></div>
+          </div>
+          <p id="fallback" hidden>HNSW reached fewer than ten rows. The engine completed the result with an exact scan.</p>
+        </section>
+      </aside>
+    </div>
+    <footer class="map-notes">
+      <p id="map-help">Lines show where HNSW first discovered each point.</p>
+      <p class="mono" id="settings"></p>
+    </footer>
+    <p id="error" role="alert" hidden></p>
+  </main>
+  <script type="module" src="/explorer.js"></script>
+</body>
+</html>

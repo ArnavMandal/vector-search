@@ -4,6 +4,24 @@ A standalone C++20 nearest-neighbor library, a command-line client and a batched
 
 The engine also supports HNSW and hardware-dispatched distance kernels. Start with the [learning guide](LEARNING.md) for a worked search, SIMD examples, tuning exercises and a tour of the changes. The [FAISS comparison](benchmarks/REPORT.md) covers all nine requested workloads.
 
+## Open the search explorer
+
+The local browser demo plots 300 seeded 2D vectors. Click the map to move the query, or focus it and use the arrow keys. Adjust `efSearch` to compare the number of exact neighbors recovered with the number of unique rows HNSW scored.
+
+![Interactive 2D map showing nine exact neighbors recovered and 34 graph points examined](explorer/preview.jpg)
+
+From the project root, activate the [Python environment](#use-the-python-interface) and run
+
+```sh
+make explorer PYTHON=python
+```
+
+Open [the explorer](http://127.0.0.1:8765/). The Make target builds the bindings and starts a loopback-only Python server. Set `PORT=8766` on the same command to use a different port. Press Ctrl+C to stop it.
+
+Lines follow each row's first discovery across all graph layers. Pale rings outline the exact top ten, lime centers mark the returned HNSW neighbors, and the dashed circle reaches the tenth exact neighbor. The scales on both axes match. The starting query at (55, 31) makes a good comparison at search widths 12 and 40.
+
+Python calls `index.trace_hnsw(query, k=10, efSearch=12)` with a **single 1-D query**. It returns IDs, squared distances, unique examined IDs in discovery order, first-discovery edges, and an exact-fallback flag. The trace counts only graph scoring, including candidates that were rejected. Ordinary batch queries use the same traversal without collecting a trace.
+
 ## Run the C++ milestone
 
 From this directory, on macOS or Linux with Make and a C++20 compiler, run
