@@ -1,14 +1,60 @@
 # Native vector search and FAISS on CPU
 
-## Reproduce the matrix
+## High recall at 100K and 1M vectors
 
-From the project directory, with Python 3.12 and a C++20 compiler, run
+On one million 128-dimensional vectors, native HNSW recovered **95.82%** of the exact top ten at **2.15 ms p95** and **659 queries/s**. FAISS HNSW recovered **97.03%** at **1.26 ms p95** and **1,103 queries/s**. Each graph used the smallest tested search width that reached the 95% calibration target. Test Recall@10, latency and throughput use 512 separate queries.
+
+| Vectors | Index | efSearch | Test Recall@10 | p50 µs | p95 µs | Batch queries/s | Core MiB | Peak RSS MiB | Build s |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100K | Native HNSW | 64 | 98.81% | 249 | 361 | 3,828 | 68.3 | 169.5 | 18.95 |
+| 100K | FAISS HNSW | 64 | 98.50% | 173 | 221 | 5,857 | 68.7 | 174.8 | 13.20 |
+| 100K | FAISS flat | — | 100.00% | 2,173 | 2,758 | 465 | 48.8 | 155.0 | 0.02 |
+| 1M | Native HNSW | 256 | 95.82% | 2,058 | 2,145 | 659 | 683.0 | 1,028.3 | 812.30 |
+| 1M | FAISS HNSW | 256 | 97.03% | 802 | 1,256 | 1,103 | 686.8 | 1,222.4 | 387.35 |
+| 1M | FAISS flat | — | 100.00% | 21,387 | 23,952 | 49 | 488.3 | 1,010.0 | 0.62 |
+
+At **100K**, both engines selected width 64. Calibration recall was 98.55% for native and 98.52% for FAISS. At **1M**, both engines selected width 256. Calibration recall was 97.66% for native and 97.70% for FAISS. At the selected widths, the native trace returned the same ordered IDs as ordinary search for every test query at each size and recorded zero exact-scan fallbacks.
+
+At 1M, native HNSW delivered 13.4× the batch throughput of exhaustive FAISS, using an additional 194.7 MiB of index storage. FAISS HNSW delivered 1.68× the native graph's throughput at its selected setting. Out of 512 test queries, native returned all ten neighbors on 388 and missed all ten on 8. The corresponding FAISS HNSW counts were 398 and 2.
+
+On that same native 1M graph, reducing efSearch from 256 to 128 changed test recall from 95.82% to 91.04% and p95 from 2.15 to 1.32 ms. Both settings used the same 683.0 MiB index.
+
+![Held-out Recall@10 and p95 latency across the measured search widths](high_recall.svg)
+
+### Measurement and reproduction
+
+- **Data and ground truth.** Seed 42 generates the same synthetic corpus for each backend at a given size. The generator draws 64 cluster centers with Gaussian coordinates of standard deviation 2. For each float32 vector, it picks a center uniformly and adds independent standard Gaussian noise. Exhaustive FAISS IndexFlatL2 supplies the reference IDs. A separate exhaustive pass with the native double-precision accumulator recovered all 15,360 FAISS reference IDs across the test and calibration queries at both sizes. Test Recall@10 divides the number of recovered IDs by 5,120. The measurements describe this clustered workload.
+- **Calibration.** Both HNSW implementations received identical rows, squared L2, M = 24, efConstruction = 120, and one build thread. Each graph was built once and reused. The runner used 256 additional queries to select among efSearch = 16, 32, 64, 128, 256, 512, 1,024, 2,048 and 4,096 in ascending order. It selected the first setting with calibration Recall@10 ≥ 95% before timing or scoring test queries. Implementations can produce different graphs from the same build parameters.
+- **Timing.** Latency measures 512 warmed, individual Python search calls. Throughput measures eight consecutive 64-query batches and uses the median elapsed time of five complete passes. Search, construction and library thread limits were set to one. Timing includes binding and result materialization. The width sweep ran from narrow to wide.
+- **Memory.** Core MiB covers float32 vectors and the main graph arrays. Native reports allocated vector, offset and link storage. FAISS counts vector payload and the used entries in its level, offset and neighbor arrays. Allocator slack and query scratch space can differ. Peak RSS is the worker's lifetime high-water mark up to that row, including the runtime, source matrix, build scratch and calibration searches. Each engine and shape ran in a fresh process.
+- **Environment.** Apple M2 with 8 GiB RAM, macOS 26.0.1, Apple Clang 17 release build (`-O3`, NEON), Python 3.12.11, NumPy 2.3.4 and faiss-cpu 1.16.0. The native engine ran the graph implementation from commit `f15d75e`. FAISS ran its CPU IndexHNSWFlat. Each engine and size had one build and one data seed. The raw records include per-query hit-count histograms and measurements for every width. [High-recall data](high_recall.jsonl)
+
+From the repository root, set up the benchmark environment with Python 3.12 and a C++20 compiler.
 
 ```sh
-python3 -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r benchmarks/requirements.txt
 make bindings PYTHON=python
+```
+
+Run the high-recall sweep with a new output filename for each run.
+
+```sh
+PYTHONPATH=build python benchmarks/compare.py \
+  --rows 100000 1000000 --dims 128 --engines faiss-flat native-hnsw faiss-hnsw \
+  --M 24 --efConstruction 120 --efSearch 16 32 64 128 256 512 1024 2048 4096 \
+  --calibration-queries 256 --recall-target 0.95 --queries 512 --batch-size 64 \
+  --threads 1 --repeats 5 --seed 42 --output my-high-recall.jsonl
+```
+
+Run `PYTHONPATH=build python benchmarks/test_compare.py` to check the calibration split and both backends against a small exhaustive NumPy reference. To redraw the figure, install Matplotlib (the published figure uses 3.10.3) and run `python benchmarks/plot_recall.py my-high-recall.jsonl --output my-high-recall.svg`.
+
+## Reproduce the matrix
+
+With the benchmark environment active, run the original sparse matrix from the repository root.
+
+```sh
 PYTHONPATH=build python benchmarks/compare.py --output my-run.jsonl
 ```
 

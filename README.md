@@ -4,6 +4,10 @@ A standalone C++20 nearest-neighbor library, a command-line client and a batched
 
 The engine also supports HNSW and hardware-dispatched distance kernels. Start with the [learning guide](LEARNING.md) for a worked search, SIMD examples, tuning exercises and a tour of the changes. The [FAISS comparison](benchmarks/REPORT.md) covers all nine requested workloads.
 
+## High-recall benchmark
+
+On one million 128-dimensional vectors, native HNSW recovered **95.82%** of the exact top ten at **2.15 ms p95** and **659 queries/s**. FAISS HNSW recovered **97.03%** at **1.26 ms p95** and **1,103 queries/s**. The comparison uses one CPU thread, the same clustered corpus, and separate calibration and test queries. [100K and 1M results, memory and reproduction command](benchmarks/REPORT.md#high-recall-at-100k-and-1m-vectors)
+
 ## Open the search explorer
 
 The local browser demo plots 300 seeded 2D vectors. Click the map to move the query, or focus it and use the arrow keys. Adjust `efSearch` to compare the number of exact neighbors recovered with the number of unique rows HNSW scored.

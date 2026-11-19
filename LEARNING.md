@@ -101,6 +101,8 @@ For a measured example, look at the 10K × 128 clustered corpus. With M = 16 and
 
 The comparison uses one exact flat FAISS index as a reference and one FAISS HNSW index with full vectors. Both have the same L2 metric as the native engine. FAISS scores in float32 and the native engine accumulates in float64, so nearly tied rankings can differ even for the two exhaustive scans. The two HNSW builders can also produce different routes at identical M and ef settings. To select a backend, compare latency at a recall level your application actually needs. [FAISS index overview](https://github.com/facebookresearch/faiss/wiki/Faiss-indexes)
 
+**Choose the search width before scoring the test queries.** In the 100K experiment, the native graph recovered 93.28% of its calibration neighbors at `efSearch=32` and 98.55% at 64. With a 95% target, that selected 64. On 512 fresh test queries it recovered 5,059 out of 5,120 neighbors, or 98.81%. The hit-count histogram tells you more about individual queries. Five queries recovered eight neighbors, 51 recovered nine, and 456 recovered all ten. You can repeat this calculation for either engine at 1M using the raw results. [High-recall measurements and protocol](benchmarks/REPORT.md#high-recall-at-100k-and-1m-vectors)
+
 ## 6. Map the changes back to the original engine
 
 | Before | Extension | Where to read or verify it |
